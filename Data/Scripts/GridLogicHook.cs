@@ -86,6 +86,10 @@ namespace acamilo.voidbornehunters
         {
             try
             {
+                // If not running on the server (i.e., running on a client), exit the method.
+                if (!MyAPIGateway.Multiplayer.IsServer)
+                    return;
+
                 // Run every search_interval
                 tickCounter++;
                 if (tickCounter <= search_interval)
@@ -107,7 +111,7 @@ namespace acamilo.voidbornehunters
                 {
                     if(grid.MarkedForClose)
                         continue;
-                    
+                    MyLog.Default.WriteLineAndConsole($"Grid {grid.DisplayName}");
                     Signature sig = calculateSignature(grid);
                     
                     if (!signatures.ContainsKey(grid.EntityId))
@@ -118,6 +122,30 @@ namespace acamilo.voidbornehunters
                     } else {
                         signatures[grid.EntityId]=sig;
                     }
+                }
+
+                // Determine which players can see what signature
+                        // Iterate over each connected player.
+
+                // Create a list to hold the players.
+                List<IMyPlayer> players = new List<IMyPlayer>();
+                MyAPIGateway.Players.GetPlayers(players, null);
+                foreach (IMyPlayer player in players)
+                {
+                    if (player?.Character == null)
+                        continue;
+
+                    foreach(var kv in signatures.ToList()){
+                        Signature s = kv.Value;
+                        if (IsSignatureDetectableByPlayer(s,player)==true){
+                            MyLog.Default.WriteLineAndConsole($"Player {player} can see signature {s}");
+                        }
+                    }
+                    // Create a new GPS marker.
+                    //var gps = MyAPIGateway.Ssession.GPS.Create(gpsName, gpsDescription, coordinates, true, true);
+                    MyLog.Default.WriteLineAndConsole($"Player {player}");
+                    // Add the GPS marker to the player's HUD.
+                    //MyAPIGateway.Session.GPS.AddGps(player, gps);
                 }
             }
             catch(Exception e)
@@ -134,6 +162,10 @@ namespace acamilo.voidbornehunters
         private const double mass_weight_scale=0.4;
         private const double energy_weight=0.5;
         private const double jumping_amplification_factor = 30;
+        public static bool IsSignatureDetectableByPlayer(Signature sig, IMyPlayer player){
+            return true;
+
+        }
         public static Signature calculateSignature(IMyCubeGrid grid){
             // Collect grid info
             float grid_power  = GetGridPowerConsumption(grid);
