@@ -239,7 +239,7 @@ namespace acamilo.voidbornehunters
                 true,                   // Show on HUD
                 false                   // Not persistent (won't live in the GPS log)
             );
-            this.gps_marker.GPSColor = new Color(255, 0, 255);
+            this.gps_marker.GPSColor = new Color(255, 141, 161);
             this.gps_marker.DiscardAt = MyAPIGateway.Session.ElapsedPlayTime+TimeSpan.FromSeconds(20);
         }
 
@@ -285,30 +285,74 @@ namespace acamilo.voidbornehunters
 
         public override void LoadData()
         {
-            MyAPIGateway.Entities.OnEntityAdd += EntityAdded;
+            try {
+                if (!MyAPIGateway.Multiplayer.IsServer)
+                    return;
+                MyAPIGateway.Entities.OnEntityAdd += EntityAdded;
+            }            catch(Exception e)
+            {
+                MyLog.Default.WriteLineAndConsole($"{e.Message}\n{e.StackTrace}");
+
+                if(MyAPIGateway.Session?.Player != null)
+                    MyAPIGateway.Utilities.ShowNotification($"[ ERROR: {GetType().FullName}: {e.Message} | Send SpaceEngineers.Log to mod author ]", 10000, MyFontEnum.Red);
+            }
+
         }
 
         protected override void UnloadData()
         {
-            MyAPIGateway.Entities.OnEntityAdd -= EntityAdded;
+            try {
+                if (!MyAPIGateway.Multiplayer.IsServer)
+                    return;
+                MyAPIGateway.Entities.OnEntityAdd -= EntityAdded;
 
-            grids.Clear();
+                grids.Clear();
+            } catch(Exception e)
+            {
+                MyLog.Default.WriteLineAndConsole($"{e.Message}\n{e.StackTrace}");
+
+                if(MyAPIGateway.Session?.Player != null)
+                    MyAPIGateway.Utilities.ShowNotification($"[ ERROR: {GetType().FullName}: {e.Message} | Send SpaceEngineers.Log to mod author ]", 10000, MyFontEnum.Red);
+            }
+
         }
 
         private void EntityAdded(IMyEntity ent)
         {
-            var grid = ent as IMyCubeGrid;
+            try {
+                if (!MyAPIGateway.Multiplayer.IsServer)
+                    return;
+                var grid = ent as IMyCubeGrid;
 
-            if(grid != null)
+                if(grid != null)
+                {
+                    grids.Add(grid.EntityId, grid);
+                    grid.OnMarkForClose += GridMarkedForClose;
+                }
+            } catch(Exception e)
             {
-                grids.Add(grid.EntityId, grid);
-                grid.OnMarkForClose += GridMarkedForClose;
+                MyLog.Default.WriteLineAndConsole($"{e.Message}\n{e.StackTrace}");
+
+                if(MyAPIGateway.Session?.Player != null)
+                    MyAPIGateway.Utilities.ShowNotification($"[ ERROR: {GetType().FullName}: {e.Message} | Send SpaceEngineers.Log to mod author ]", 10000, MyFontEnum.Red);
             }
+
         }
 
         private void GridMarkedForClose(IMyEntity ent)
         {
-            grids.Remove(ent.EntityId);
+            try {
+                           if (!MyAPIGateway.Multiplayer.IsServer)
+                return;
+            grids.Remove(ent.EntityId); 
+            }catch(Exception e)
+            {
+                MyLog.Default.WriteLineAndConsole($"{e.Message}\n{e.StackTrace}");
+
+                if(MyAPIGateway.Session?.Player != null)
+                    MyAPIGateway.Utilities.ShowNotification($"[ ERROR: {GetType().FullName}: {e.Message} | Send SpaceEngineers.Log to mod author ]", 10000, MyFontEnum.Red);
+            }
+
         }
 
         public override void UpdateBeforeSimulation()
