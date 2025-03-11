@@ -47,7 +47,7 @@ namespace acamilo.voidbornehunters
             string s = $"BEGIN REPORT\n";
             s += jump?"ALERT: QUANTUM DISPLACEMENT DETECTION EVENT\nJUMP SIGNATURE DETECTED!\n\n":"ALERT: QUANTUM SUBHARMONIC DETECTION EVENT\n\n";
             s += $"SIGNATURE ID:    [{sig}]\n";
-            s += $"MASS:            {mass}\n";
+            s += $"MASS:            {mass}";
             s += $"VELOCITY:        {speed}\n";
             s += $"DETECTED ENERGY: {energy}\n";
             s += $"\n";
@@ -142,8 +142,14 @@ namespace acamilo.voidbornehunters
                 if (shipGrid != null)
                 {
                     MyLog.Default.WriteLineAndConsole("Player is in a ship");
-                    double threshold = GetAntennaRange(shipGrid);
-                    MyLog.Default.WriteLineAndConsole($"Player {player} Is in a ship with an antenna range of {threshold}");
+                    double threshold=0;
+                    List<double> ranges = GridUtilities.GetAntennaRanges(shipGrid);
+                    double contribution_quotent=1;
+                    foreach (double range in ranges){
+                        threshold+=range*contribution_quotent;
+                        contribution_quotent=contribution_quotent*0.99;
+                    }
+                    MyLog.Default.WriteLineAndConsole($"Player {player} Is in a ship with {ranges.Count} antennas and a combined antenna range of {threshold}");
                     return threshold;
                 }
             }  else if (player.Character != null) // Player is on foot
@@ -170,6 +176,23 @@ namespace acamilo.voidbornehunters
 
             return maxRange > 0 ? maxRange : 0.001;
         }
+        public static List<double> GetAntennaRanges(IMyCubeGrid grid)
+        {
+            List<IMyRadioAntenna> antennas = new List<IMyRadioAntenna>();
+            MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid).GetBlocksOfType(antennas);
+
+            List<double> ranges = new List<double>();
+
+            foreach (IMyRadioAntenna antenna in antennas)
+            {
+                if (antenna.IsFunctional && antenna.Enabled) // Only count working antennas
+                {
+                    ranges.Add(antenna.Radius); // Add the antenna's range
+                }
+            }
+
+            return ranges;
+        }
     }
     public class Signature {
         public double magnitude;
@@ -179,8 +202,6 @@ namespace acamilo.voidbornehunters
         public List<IMyPlayer> gps_marker_players = new List<IMyPlayer>();
 
         public Vector3D location;
-        public long expiryTick;
-        private const int lifetime = 200;
         public double CalculateDetectedEnergy(Vector3D sensor){
             double distance = (sensor - this.location).Length();
             double detected_energy = this.magnitude / Math.Pow(distance,2.0);
@@ -223,7 +244,6 @@ namespace acamilo.voidbornehunters
             this.entity_id = grid.EntityId;
             this.location = grid.WorldMatrix.Translation;
             this.owner_id = ownerId;
-            this.expiryTick = MyAPIGateway.Session.GameplayFrameCounter+lifetime;
 
             string sig = GridUtilities.GenerateSignatureID(this.entity_id);
             string prefix = "M-";
@@ -240,7 +260,6 @@ namespace acamilo.voidbornehunters
                 false                   // Not persistent (won't live in the GPS log)
             );
             this.gps_marker.GPSColor = new Color(255, 141, 161);
-            this.gps_marker.DiscardAt = MyAPIGateway.Session.ElapsedPlayTime+TimeSpan.FromSeconds(20);
         }
 
         private const double speed_weight=0.2;
@@ -251,12 +270,13 @@ namespace acamilo.voidbornehunters
         public override string ToString()
         {
             return $"Signature(EntityID: {entity_id}, Magnitude: {magnitude}, " +
-                $"Location: {location}, Expire on Tick: {expiryTick})";
+                $"Location: {location}";
         }
 
         public void ShowMarkerToPlayer(bool visible,IMyPlayer player){
             if (visible){
                 MyAPIGateway.Session.GPS.AddGps(player.IdentityId, this.gps_marker);
+                this.gps_marker.DiscardAt = MyAPIGateway.Session.ElapsedPlayTime+TimeSpan.FromSeconds(600);
                 this.gps_marker_players.Add(player);
             } else {
                 MyAPIGateway.Session.GPS.RemoveGps(player.IdentityId, this.gps_marker);
@@ -277,7 +297,10 @@ namespace acamilo.voidbornehunters
     public class GridEvaluator_GridLogicSession : MySessionComponentBase
     {
         private const int search_interval = 600; // 5 seconds in game ticks (60 ticks per second)
-        private int tickCounter = 600;
+        private const int hud_update_interval = 18000;
+        private const int no_detection_radius = 3000;
+        private int search_counter = search_interval;
+        private int hud_update_counter=hud_update_interval;
         private readonly Dictionary<long, IMyCubeGrid> grids = new Dictionary<long, IMyCubeGrid>();
         public readonly Dictionary<long,Signature> signatures = new Dictionary<long,Signature>();
 
@@ -355,6 +378,85 @@ namespace acamilo.voidbornehunters
 
         }
 
+        public void DoGridSearch(){
+                MyLog.Default.WriteLineAndConsole($"GRID SEARCH");
+                search_counter=0;
+
+                // Generate signature for each grid
+                foreach(var grid in grids.Values)
+                {
+                    if(grid.MarkedForClose)
+                        continue;
+
+                    Signature sig = new Signature(grid);
+                    
+                    if (!signatures.ContainsKey(grid.EntityId))
+                    {
+                        
+                        signatures.Add(grid.EntityId, sig);
+                    } else {
+                        if (signatures[grid.EntityId].magnitude<sig.magnitude)
+                            continue; // Don't overwrite a stringer signature
+                        signatures[grid.EntityId]=sig;
+                    }
+                }
+                MyLog.Default.WriteLineAndConsole($"Total Signatures: {signatures.Count}");
+
+        }
+
+        public void DoHudUpdate(){
+            hud_update_counter=0;
+            MyLog.Default.WriteLineAndConsole($"HUD UPDATE");
+            // Remove stale signatures
+            foreach(var kv in signatures.ToList()){
+                Signature s = kv.Value;
+                s.RemoveMarkerFromAllPlayerHUDs();
+            }
+
+            // Determine which players can see what signature
+            // Iterate over each connected player.
+
+            // Build a list of players
+            List<IMyPlayer> players = new List<IMyPlayer>();
+            MyAPIGateway.Players.GetPlayers(players, null);
+
+            // Calculate detection signatures for players
+            Dictionary<long,double> player_thresholds = new Dictionary<long,double>();
+            foreach (IMyPlayer player in players){
+                double threshold = 1/GridUtilities.GetPlayerDetectionThreshold(player);
+                threshold = threshold*10;
+                MyLog.Default.WriteLineAndConsole($"Player {player} has threshold of {threshold}");
+                player_thresholds.Add(player.IdentityId,threshold);
+            }
+
+            foreach (IMyPlayer player in players)
+            {
+                if (player?.Character == null)
+                    continue;
+                Vector3D player_position = GridUtilities.GetPlayerPosition(player);
+                foreach(var kv in signatures.ToList()){
+                    Signature s = kv.Value;
+                    
+                    //MyLog.Default.WriteLineAndConsole($"Energy: {s.CalculateDetectedEnergy(player_position)} Marker:{s.gps_marker}");
+                    if (GridUtilities.IsPlayerNearPosition(player,s.location,no_detection_radius)){
+                        //MyLog.Default.WriteLineAndConsole($"Player {player} is too close to {s} to detect it");
+                        continue;
+                    }
+                    if (s.detectableBy(player_position,player_thresholds[player.IdentityId]))
+                        s.ShowMarkerToPlayer(true,player);
+                }
+            }
+
+
+
+
+
+            foreach(var kv in signatures.ToList()){
+                Signature s = kv.Value;
+                signatures.Remove(s.entity_id);
+            }
+        }
+
         public override void UpdateBeforeSimulation()
         {
             try
@@ -364,71 +466,16 @@ namespace acamilo.voidbornehunters
                     return;
 
                 // Run every search_interval
-                tickCounter++;
-                if (tickCounter <= search_interval)
-                        return;
-                tickCounter=0;
-                // Build a list of players
-                List<IMyPlayer> players = new List<IMyPlayer>();
-                MyAPIGateway.Players.GetPlayers(players, null);
+                if (search_counter <= search_interval)
+                        search_counter++;
+                else 
+                    DoGridSearch();
 
-                // Remove stale signatures
-                foreach(var kv in signatures.ToList()){
-                    Signature s = kv.Value;
-                    if (MyAPIGateway.Session.GameplayFrameCounter>s.expiryTick)
-                        s.RemoveMarkerFromAllPlayerHUDs();
-                        signatures.Remove(s.entity_id);
-                        
-                        //MyLog.Default.WriteLineAndConsole($"Removing Stale Signature {s}");
-                }
-                // Calculate detection signatures for players
-                Dictionary<long,double> player_thresholds = new Dictionary<long,double>();
-                foreach (IMyPlayer player in players){
-                    double threshold = 1/GridUtilities.GetPlayerDetectionThreshold(player);
-                    threshold = threshold*10;
-                    MyLog.Default.WriteLineAndConsole($"Player {player} has threshold of {threshold}");
-                    player_thresholds.Add(player.IdentityId,threshold);
-                }
+                if (hud_update_counter <= hud_update_interval)
+                    hud_update_counter++;
+                else
+                    DoHudUpdate();
 
-                // Generate signature for each grid
-                foreach(var grid in grids.Values)
-                {
-                    if(grid.MarkedForClose)
-                        continue;
-                    //MyLog.Default.WriteLineAndConsole($"Grid {grid.DisplayName}");
-                    Signature sig = new Signature(grid);
-                    
-                    if (!signatures.ContainsKey(grid.EntityId))
-                    {
-                        
-                        signatures.Add(grid.EntityId, sig);
-                        //MyLog.Default.WriteLineAndConsole($"Adding New Signature {sig}");
-                    } else {
-                        signatures[grid.EntityId]=sig;
-                    }
-                }
-                MyLog.Default.WriteLineAndConsole($"Total Signatures: {signatures.Count}");
-                // Determine which players can see what signature
-                // Iterate over each connected player.
-
-                // Create a list to hold the players.
-                foreach (IMyPlayer player in players)
-                {
-                    if (player?.Character == null)
-                        continue;
-                    Vector3D player_position = GridUtilities.GetPlayerPosition(player);
-                    foreach(var kv in signatures.ToList()){
-                        Signature s = kv.Value;
-                        
-                        //MyLog.Default.WriteLineAndConsole($"Energy: {s.CalculateDetectedEnergy(player_position)} Marker:{s.gps_marker}");
-                        if (GridUtilities.IsPlayerNearPosition(player,s.location,3000)){
-                            //MyLog.Default.WriteLineAndConsole($"Player {player} is too close to {s} to detect it");
-                            continue;
-                        }
-                        if (s.detectableBy(player_position,player_thresholds[player.IdentityId]))
-                            s.ShowMarkerToPlayer(true,player);
-                    }
-                }
 
             }
             catch(Exception e)
