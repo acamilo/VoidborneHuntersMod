@@ -98,6 +98,8 @@ namespace acamilo.voidbornehunters
 
             foreach (IMyJumpDrive jumpDrive in jumpDrives)
             {
+                
+                MyLog.Default.WriteLineAndConsole($"{grid.DisplayName}:\t{jumpDrive.Status} {jumpDrive.Status.ToString()}");
                 if (jumpDrive.Status.ToString() == "Jumping")
                 {
                     return true; // At least one Jump Drive is jumping
@@ -244,7 +246,7 @@ namespace acamilo.voidbornehunters
             return false;
 
         }
-        public Signature(IMyCubeGrid grid)
+        public Signature(IMyCubeGrid grid, bool is_jumping)
         {
             // Collect grid info
             float grid_power  = GridUtilities.GetGridPowerConsumption(grid);
@@ -258,7 +260,8 @@ namespace acamilo.voidbornehunters
                 
             }
 
-            bool is_jumping = GridUtilities.IsAnyJumpDriveJumping(grid);
+            if (is_jumping)
+                MyLog.Default.WriteLineAndConsole($"Name: {grid.DisplayName} is jumping!");
             
             double speed_q = speed* speed_weight;
             double mass_q = mass * (Math.Pow(mass,mass_weight_exp)*mass_weight_scale)/mass;
@@ -327,12 +330,16 @@ namespace acamilo.voidbornehunters
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
     public class GridEvaluator_GridLogicSession : MySessionComponentBase
     {
+        private const int jump_check_interval = 3; 
         private const int search_interval = 600; // 5 seconds in game ticks (60 ticks per second)
         private const int hud_update_interval = 18000;
         private const int no_detection_radius = 3000;
         private int search_counter = search_interval;
         private int hud_update_counter=hud_update_interval;
+        private int jump_check_counter = jump_check_interval;
         private readonly Dictionary<long, IMyCubeGrid> grids = new Dictionary<long, IMyCubeGrid>();
+        private readonly List<IMyJumpDrive> jump_drives  = new List<IMyJumpDrive>(); // list to store all jump drive blocks
+        private readonly List<IMyCubeGrid> jumping_grids = new List<IMyCubeGrid>(); // collection of grids in the process of jumping
         public readonly Dictionary<long,Signature> signatures = new Dictionary<long,Signature>();
 
         public readonly Dictionary<IMyGps,long> gps_expiry = new Dictionary<IMyGps, long>();
@@ -411,6 +418,7 @@ namespace acamilo.voidbornehunters
 
         public void DoGridSearch(){
                 MyLog.Default.WriteLineAndConsole($"GRID SEARCH");
+                jump_drives.Clear(); // Clear the watch list of jump drives
                 search_counter=0;
 
                 // Generate signature for each grid
@@ -419,11 +427,20 @@ namespace acamilo.voidbornehunters
                     if(grid.MarkedForClose)
                         continue;
 
-                    Signature sig = new Signature(grid);
+                    bool jumping = jumping_grids.Exists(jd => jd.EntityId == grid.EntityId);
+                    Signature sig = new Signature(grid,jumping);
+                    
+                    // add any jump drives if they exist to the list to be checked between iterations of grid serch
+                    List<IMyJumpDrive> drives = GridUtilities.GetJumpDrives(grid);
+                    //MyLog.Default.WriteLineAndConsole($"{grid.DisplayName}: {drives}");
+                    foreach (var jumpDrive in drives)
+                    {
+                        jump_drives.Add(jumpDrive);
+                    }
                     
                     if (!signatures.ContainsKey(grid.EntityId))
                     {
-                        
+
                         signatures.Add(grid.EntityId, sig);
                     } else {
                         if (signatures[grid.EntityId].magnitude<sig.magnitude)
@@ -431,8 +448,24 @@ namespace acamilo.voidbornehunters
                         signatures[grid.EntityId]=sig;
                     }
                 }
+                
+                jumping_grids.Clear();
                 MyLog.Default.WriteLineAndConsole($"Total Signatures: {signatures.Count}");
+                MyLog.Default.WriteLineAndConsole($"{jump_drives.Count} drives bieng watched for jumps");
 
+        }
+
+        public void UpdateJumpingGrids(){
+            jump_check_counter=0;
+            // A faster loop to check grids and 
+            foreach (IMyJumpDrive d in jump_drives){
+                if (d.Status.ToString() == "Jumping")
+                    if (!jumping_grids.Contains(d.CubeGrid)){
+                        jumping_grids.Add(d.CubeGrid);
+                        MyLog.Default.WriteLineAndConsole($"{d.CubeGrid.DisplayName} is jumping and has been addded to the jumping grids list");
+                    }
+                        
+            }
         }
 
         public void DoHudUpdate(){
@@ -506,6 +539,11 @@ namespace acamilo.voidbornehunters
                     hud_update_counter++;
                 else
                     DoHudUpdate();
+
+                if (jump_check_counter <= jump_check_interval)
+                    jump_check_counter++;
+                else
+                    UpdateJumpingGrids();
 
 
             }
