@@ -43,15 +43,44 @@ namespace acamilo.voidbornehunters
 
             return Vector3D.Zero; // Default if no valid position found
         }
-        public static string generateFluffDescription(bool jump, string sig, double mass,double speed,double energy){
+        public static string generateFluffDescription(bool jump, string sig, double mass,double speed,double energy,double magnitude){
+            string speed_class="";
+            string mass_class=";";
+            string action="MONITOR";
+            if (speed<20.0)
+                speed_class = "GREEN";
+            else if (speed<45.0)
+                speed_class = "AMBER";
+            else if (speed<70.0)
+                speed_class = "ORANGE";
+            else
+                speed_class = "VERMILION";
+
+            if (mass<10000.0)
+                mass_class = "SMALL";
+            else if (mass<100000.0)
+                mass_class = "MEDIUM";
+            else if (mass<1000000.0)
+                mass_class = "LARGE";
+            else if (mass<10000000.0)
+                mass_class = "HEFTY";
+            else if (mass<100000000.0)
+                mass_class = "CHONKER";
+            else
+                mass_class = "OHLORDHECOMIN'";
+
+            if (jump || speed>90.0 || energy>5.0)
+                action="INTERCEPT";
+
             string s = $"BEGIN REPORT\n";
             s += jump?"ALERT: QUANTUM DISPLACEMENT DETECTION EVENT\nJUMP SIGNATURE DETECTED!\n\n":"ALERT: QUANTUM SUBHARMONIC DETECTION EVENT\n\n";
             s += $"SIGNATURE ID:    [{sig}]\n";
-            s += $"MASS:            {mass}";
-            s += $"VELOCITY:        {speed}\n";
+            s += $"MASS:            {mass} ({mass_class})\n";
+            s += $"VELOCITY:        {speed} ({speed_class})\n";
             s += $"DETECTED ENERGY: {energy}\n";
             s += $"\n";
-            s += $"RECOMMENDED ACTION: MONITOR OR INTERCEPT";
+            s += $"TOTAL EMISSIONS: {magnitude}\n";
+            s += $"RECOMMENDED ACTION: {action}";
 
             return s;
         }
@@ -193,6 +222,7 @@ namespace acamilo.voidbornehunters
 
             return ranges;
         }
+        
     }
     public class Signature {
         public double magnitude;
@@ -236,6 +266,7 @@ namespace acamilo.voidbornehunters
 
             double sig_magnitude = speed_q + mass_q + energy_q;
             sig_magnitude = sig_magnitude*(is_jumping ? jumping_amplification_factor : 1.0);
+            sig_magnitude = sig_magnitude * (grid_power>1.0?grid_power:1.0);
             //MyLog.Default.WriteLineAndConsole($"Name: {grid.DisplayName}\tMass: {mass}\tSpeed: {speed}\tEnergy: {grid_power}");
             
             long ownerId = (grid.BigOwners.Count > 0) ? grid.BigOwners[0] : 0;
@@ -254,7 +285,7 @@ namespace acamilo.voidbornehunters
             sig = prefix+sig;
             this.gps_marker =  MyAPIGateway.Session.GPS.Create(
                 $"[{sig}]",          // Name
-                GridUtilities.generateFluffDescription(is_jumping,sig,mass,speed,grid_power), // Description
+                GridUtilities.generateFluffDescription(is_jumping,sig,mass,speed,grid_power,magnitude), // Description
                 this.location,    // Coordinates
                 true,                   // Show on HUD
                 false                   // Not persistent (won't live in the GPS log)
