@@ -268,8 +268,13 @@ namespace acamilo.voidbornehunters
             double energy_q = grid_power*energy_weight;
 
             double sig_magnitude = speed_q + mass_q + energy_q;
-            sig_magnitude = sig_magnitude*(is_jumping ? jumping_amplification_factor : 1.0);
-            sig_magnitude = sig_magnitude * (grid_power>1.0?grid_power:1.0);
+            if (is_jumping){
+                sig_magnitude = sig_magnitude*( ? jumping_amplification_factor : 1.0);
+            } else {
+                sig_magnitude = sig_magnitude * (grid_power>1.0?grid_power:1.0);
+            }
+            
+            
             //MyLog.Default.WriteLineAndConsole($"Name: {grid.DisplayName}\tMass: {mass}\tSpeed: {speed}\tEnergy: {grid_power}");
             
             long ownerId = (grid.BigOwners.Count > 0) ? grid.BigOwners[0] : 0;
@@ -300,7 +305,7 @@ namespace acamilo.voidbornehunters
         private const double mass_weight_exp=1.3;
         private const double mass_weight_scale=0.4;
         private const double energy_weight=0.5;
-        private const double jumping_amplification_factor = 30;
+        private const double jumping_amplification_factor = 3000;
         public override string ToString()
         {
             return $"Signature(EntityID: {entity_id}, Magnitude: {magnitude}, " +
