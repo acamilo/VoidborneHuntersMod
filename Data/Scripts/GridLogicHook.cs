@@ -269,7 +269,7 @@ namespace acamilo.voidbornehunters
 
             double sig_magnitude = speed_q + mass_q + energy_q;
             if (is_jumping){
-                sig_magnitude = sig_magnitude*( ? jumping_amplification_factor : 1.0);
+                sig_magnitude = sig_magnitude*jumping_amplification_factor;
             } else {
                 sig_magnitude = sig_magnitude * (grid_power>1.0?grid_power:1.0);
             }
